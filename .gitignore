@@ -8,3 +8,4 @@ __pycache__/
 *.log
 cowrie.json
 sentinel-backup/
+fernet.key
