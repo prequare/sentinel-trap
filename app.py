@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from crypto_store import load_decrypted_events
+from crypto_store import load_decrypted_events, store_events
 
 st.set_page_config(
     page_title="Sentinel Trap",
@@ -26,6 +26,15 @@ def load_dashboard_events():
         }
         for event in events
     ]
+
+
+if st.button("Import new Cowrie events"):
+    try:
+        store_events()
+        load_dashboard_events.clear()
+        st.success("Cowrie events import check complete.")
+    except Exception as error:
+        st.error(f"Import failed: {error}")
 
 
 if st.button("Refresh events"):
