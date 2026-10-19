@@ -10,6 +10,7 @@ LOG_FILE = Path.home() / "cowrie/var/log/cowrie/cowrie.json"
 
 
 def store_events():
+    new_events = []
     if not KEY_FILE.exists():
         print("Encryption key not found.")
         return
@@ -53,8 +54,11 @@ def store_events():
                     (event_hash, encrypted),
                 )
                 stored += cursor.rowcount
+                if cursor.rowcount == 1:
+                    new_events.append(event)
 
     print(f"New encrypted events stored: {stored}")
+    return new_events
 
 
 if __name__ == "__main__":
