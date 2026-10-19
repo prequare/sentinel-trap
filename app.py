@@ -153,6 +153,14 @@ else:
         elif result.get("status") == "invalid_ip":
             st.warning("Invalid IP address.")
         else:
+            cache_status = result.get("cache")
+
+            if cache_status == "hit":
+                st.success("OSINT Cache: HIT — saved result reused")
+            elif cache_status == "miss":
+                st.info("OSINT Cache: MISS — fresh lookup attempted")
+            else:
+                st.caption("OSINT Cache: status unavailable")
             vt = result.get("virustotal", {})
             shodan = result.get("shodan", {})
 
