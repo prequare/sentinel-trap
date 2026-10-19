@@ -1,9 +1,14 @@
+
 import ipaddress
+import json
+import time
 from pathlib import Path
 
 import requests
 
 KEY_FILE = Path.home() / ".config/sentinel-trap/api.env"
+CACHE_FILE = Path.home() / ".config/sentinel-trap/osint-cache.json"
+CACHE_TTL_SECONDS = 24 * 60 * 60
 TIMEOUT = 10
 
 
@@ -26,8 +31,33 @@ def load_api_keys():
     return keys
 
 
+def load_cache():
+    """Read unexpired cached OSINT results."""
+    try:
+        cache = json.loads(CACHE_FILE.read_text())
+        now = time.time()
+        return {
+            ip: entry
+            for ip, entry in cache.items()
+            if now - entry.get("cached_at", 0) < CACHE_TTL_SECONDS
+        }
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return {}
+
+
+def save_cache(cache):
+    """Save cache locally with restrictive file permissions."""
+    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CACHE_FILE.parent.chmod(0o700)
+
+    temp_file = CACHE_FILE.with_suffix(".tmp")
+    temp_file.write_text(json.dumps(cache, indent=2))
+    temp_file.chmod(0o600)
+    temp_file.replace(CACHE_FILE)
+
+
 def enrich_ip(ip):
-    """Fetch threat intelligence for one public IP address."""
+    """Fetch or reuse threat intelligence for a public IP."""
     try:
         address = ipaddress.ip_address(str(ip).strip())
     except ValueError:
@@ -36,9 +66,18 @@ def enrich_ip(ip):
     if not address.is_global:
         return {"ip": str(address), "status": "skipped_non_public_ip"}
 
+    address = str(address)
+    cache = load_cache()
+    cached = cache.get(address)
+
+    if cached and "result" in cached:
+        result = cached["result"].copy()
+        result["cache"] = "hit"
+        return result
+
     keys = load_api_keys()
     result = {
-        "ip": str(address),
+        "ip": address,
         "virustotal": {},
         "shodan": {},
     }
@@ -65,7 +104,7 @@ def enrich_ip(ip):
                 "status": "unavailable",
                 "http_status": response.status_code,
             }
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         result["virustotal"] = {"status": "request_failed"}
 
     # Shodan host information
@@ -90,7 +129,20 @@ def enrich_ip(ip):
                 "status": "unavailable",
                 "http_status": response.status_code,
             }
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         result["shodan"] = {"status": "request_failed"}
 
+    # Cache only if at least one service returned useful data.
+    if (
+        result["virustotal"].get("status") == "ok"
+        or result["shodan"].get("status") == "ok"
+    ):
+        cache[address] = {
+            "cached_at": time.time(),
+            "result": result,
+        }
+        save_cache(cache)
+
+    result["cache"] = "miss"
     return result
+
