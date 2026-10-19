@@ -1,7 +1,12 @@
+
+import ipaddress
+import json
+
 import pandas as pd
 import streamlit as st
 
 from crypto_store import load_decrypted_events, store_events
+from osint_enrichment import enrich_ip
 
 st.set_page_config(
     page_title="Sentinel Trap",
@@ -95,6 +100,101 @@ st.dataframe(
 st.subheader("Event Breakdown")
 st.bar_chart(df["Event"].value_counts().head(10))
 
+st.divider()
+st.subheader("🌐 OSINT Enrichment")
+st.caption(
+    "Query VirusTotal and Shodan manually for a selected public IP. "
+    "Each query may use API quota. Private and local IPs are skipped."
+)
+public_ip_options = sorted(
+    {
+        ip.strip()
+        for ip in df["Source IP"].dropna().astype(str).unique()
+        if ip.strip()
+    }
+    | {"8.8.8.8"}
+)
+
+if not public_ip_options:
+    st.info("No source IPs are available for enrichment yet.")
+else:
+    selected_ip = st.selectbox(
+        "Select a captured source IP",
+        public_ip_options,
+    )
+
+    try:
+        selected_address = ipaddress.ip_address(selected_ip.strip())
+        is_public_ip = selected_address.is_global
+    except ValueError:
+        is_public_ip = False
+
+    if not is_public_ip:
+        st.info("This IP is invalid or non-public. OSINT lookup will be skipped.")
+
+    if st.button("Enrich selected IP", disabled=not is_public_ip):
+        with st.spinner("Querying VirusTotal and Shodan..."):
+            try:
+                result = enrich_ip(selected_ip)
+                st.session_state["osint_result"] = result
+                st.session_state["osint_result_ip"] = selected_ip
+            except Exception:
+                st.error(
+                    "OSINT lookup failed. Check the local API configuration "
+                    "and try again. Do not share your API keys."
+                )
+
+    result = st.session_state.get("osint_result")
+    result_ip = st.session_state.get("osint_result_ip")
+
+    if result and result_ip == selected_ip:
+        if result.get("status") == "skipped_non_public_ip":
+            st.info("Non-public IP skipped.")
+        elif result.get("status") == "invalid_ip":
+            st.warning("Invalid IP address.")
+        else:
+            vt = result.get("virustotal", {})
+            shodan = result.get("shodan", {})
+
+            left, right = st.columns(2)
+
+            with left:
+                st.markdown("#### VirusTotal")
+                st.write("Status:", vt.get("status", "unknown"))
+                if vt.get("status") == "ok":
+                    st.metric(
+                        "Reputation",
+                        vt.get("reputation")
+                        if vt.get("reputation") is not None
+                        else "N/A",
+                    )
+                    st.write("Country:", vt.get("country") or "Unknown")
+                    st.write("Network owner:", vt.get("as_owner") or "Unknown")
+                    st.write("Analysis counts:")
+                    st.json(vt.get("detections", {}))
+                elif vt.get("http_status"):
+                    st.write("HTTP status:", vt["http_status"])
+
+            with right:
+                st.markdown("#### Shodan")
+                st.write("Status:", shodan.get("status", "unknown"))
+                if shodan.get("status") == "ok":
+                    st.write(
+                        "Organization:",
+                        shodan.get("organization") or "Unknown",
+                    )
+                    st.write("Country:", shodan.get("country") or "Unknown")
+                    st.write("Observed ports:", shodan.get("ports", []))
+                    st.write("Hostnames:", shodan.get("hostnames", []))
+                elif shodan.get("http_status"):
+                    st.write("HTTP status:", shodan["http_status"])
+
+            st.caption(
+                "OSINT results are contextual and may be incomplete or outdated. "
+                "A reputation score alone does not prove malicious activity."
+            )
+
 st.caption(
     "Events are decrypted from the local Fernet-encrypted database."
 )
+
