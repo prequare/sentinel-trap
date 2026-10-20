@@ -202,6 +202,56 @@ else:
                 "A reputation score alone does not prove malicious activity."
             )
 
+
+st.divider()
+st.subheader("Cached OSINT Results for Captured IPs")
+st.caption(
+    "Shows saved enrichment for captured source IPs. "
+    "New public-IP lookups are performed by the automatic ingestion process."
+)
+
+try:
+    cache_path = __import__("pathlib").Path.home() / ".config/sentinel-trap/osint-cache.json"
+    cache_data = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+    captured_ips = set(df["Source IP"].dropna().astype(str).str.strip())
+    rows = []
+
+    for ip in sorted(captured_ips):
+        entry = cache_data.get(ip)
+        if not entry or not isinstance(entry.get("result"), dict):
+            continue
+
+        result = entry["result"]
+        vt = result.get("virustotal", {})
+        shodan = result.get("shodan", {})
+        detections = vt.get("detections", {})
+
+        rows.append({
+            "Source IP": ip,
+            "VirusTotal": vt.get("status", "unknown"),
+            "Reputation": vt.get("reputation"),
+            "Malicious detections": detections.get("malicious"),
+            "Shodan": shodan.get("status", "unknown"),
+            "Organization": shodan.get("organization"),
+            "Country": shodan.get("country") or vt.get("country"),
+            "Observed ports": ", ".join(
+                str(port) for port in shodan.get("ports", [])
+            ),
+            "Cache updated (UTC)": pd.to_datetime(
+                entry.get("cached_at"), unit="s", utc=True, errors="coerce"
+            ),
+        })
+
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    else:
+        st.info(
+            "No cached OSINT results match the captured source IPs yet. "
+            "Private/local IPs are skipped."
+        )
+except (OSError, ValueError, TypeError) as error:
+    st.warning(f"Unable to read cached OSINT results: {error}")
+
 st.caption(
     "Events are decrypted from the local Fernet-encrypted database."
 )
