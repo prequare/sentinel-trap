@@ -255,4 +255,48 @@ except (OSError, ValueError, TypeError) as error:
 st.caption(
     "Events are decrypted from the local Fernet-encrypted database."
 )
+st.divider()
+st.subheader("All Cached OSINT Results")
+st.caption(
+    "Includes manual test lookups as well as cached enrichment. "
+    "These IPs are not necessarily captured by Cowrie."
+)
 
+try:
+    all_cache_rows = []
+
+    for ip, entry in cache_data.items():
+        if not isinstance(entry, dict):
+            continue
+
+        result = entry.get("result", {})
+        if not isinstance(result, dict):
+            continue
+
+        vt = result.get("virustotal", {})
+        shodan = result.get("shodan", {})
+        detections = vt.get("detections", {})
+
+        all_cache_rows.append({
+            "IP": ip,
+            "VirusTotal": vt.get("status", "unknown"),
+            "Reputation": vt.get("reputation"),
+            "Malicious detections": detections.get("malicious"),
+            "Shodan": shodan.get("status", "unknown"),
+            "Organization": shodan.get("organization"),
+            "Country": shodan.get("country") or vt.get("country"),
+            "Ports": ", ".join(
+                str(port) for port in shodan.get("ports", [])
+            ),
+        })
+
+    if all_cache_rows:
+        st.dataframe(
+            pd.DataFrame(all_cache_rows),
+            use_container_width=True
+        )
+    else:
+        st.info("No cached OSINT results available yet.")
+
+except (NameError, OSError, ValueError, TypeError, AttributeError) as error:
+    st.warning(f"Unable to display all cached OSINT results: {error}")
