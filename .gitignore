@@ -9,3 +9,6 @@ __pycache__/
 cowrie.json
 sentinel-backup/
 fernet.key
+
+# Local safety backups
+*.bak
