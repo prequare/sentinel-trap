@@ -1,5 +1,5 @@
-streamlit
-pandas
-cryptography
-requests
-pytest
+streamlit==1.65.0
+pandas==3.0.6
+cryptography==50.0.2
+requests==2.34.2
+pytest==9.1.1
