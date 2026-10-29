@@ -84,22 +84,36 @@ def test_automatic_ingestion_saves_osint_cache(tmp_path, monkeypatch):
 
     assert saved_result["virustotal"]["status"] == "ok"
     assert saved_result["shodan"]["status"] == "ok"
+
+
+def test_cached_osint_result_is_reused_by_automatic_ingestion(tmp_path, monkeypatch):
+    import json
     import osint_enrichment
 
-    events = [
-        {"src_ip": "8.8.4.4"},
-    ]
-    calls = []
-
-    monkeypatch.setattr(auto_ingest, "store_events", lambda: events)
-
-    def fake_enrich_ip(ip):
-        calls.append(ip)
-        return osint_enrichment.enrich_ip(ip)
-
-    monkeypatch.setattr(auto_ingest, "enrich_ip", fake_enrich_ip)
+    cache_file = tmp_path / "osint-cache.json"
+    cache_file.write_text(json.dumps({
+        "8.8.4.4": {
+            "timestamp": 9999999999,
+            "result": {
+                "ip": "8.8.4.4",
+                "virustotal": {"status": "ok"},
+                "shodan": {"status": "ok"},
+            },
+        },
+    }))
+    monkeypatch.setattr(osint_enrichment, "CACHE_FILE", cache_file)
+    monkeypatch.setattr(
+        osint_enrichment,
+        "load_api_keys",
+        lambda: (_ for _ in ()).throw(AssertionError("API keys should not be needed")),
+    )
+    monkeypatch.setattr(
+        auto_ingest,
+        "store_events",
+        lambda: [{"src_ip": "8.8.4.4"}],
+    )
+    monkeypatch.setattr(auto_ingest, "enrich_ip", osint_enrichment.enrich_ip)
 
     count = auto_ingest.process_new_events()
 
     assert count == 1
-    assert calls == ["8.8.4.4"]
